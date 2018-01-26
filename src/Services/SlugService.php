@@ -1,6 +1,7 @@
 <?php namespace Cviebrock\EloquentSluggable\Services;
 
 use Cocur\Slugify\Slugify;
+use Cocur\Slugify\SlugifyInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
@@ -162,7 +163,18 @@ class SlugService
         } elseif (is_callable($method)) {
             $slug = call_user_func($method, $source, $separator);
         } else {
-            throw new \UnexpectedValueException('Sluggable "method" for ' . get_class($this->model) . ':' . $attribute . ' is not callable nor null.');
+            try {
+                $refl = new \ReflectionClass($method);
+                if($refl->implementsInterface(SlugifyInterface::class)) {
+                    $slugEngine = $this->getSlugEngine($attribute, $method);
+                    $slug = $slugEngine->slugify($source, $separator);
+                } else {
+                    throw new \Exception();
+                }
+            }
+            catch(\Exception $e) {
+                throw new \UnexpectedValueException('Sluggable "method" for ' . get_class($this->model) . ':' . $attribute . ' is not callable nor null.');
+            }
         }
 
         $len = mb_strlen($slug);
@@ -185,16 +197,16 @@ class SlugService
      *
      * @param string $attribute
      *
-     * @return \Cocur\Slugify\Slugify
+     * @return \Cocur\Slugify\SlugifyInterface
      */
-    protected function getSlugEngine(string $attribute): Slugify
+    protected function getSlugEngine(string $attribute, $slugifyClass = Slugify::class): SlugifyInterface
     {
         static $slugEngines = [];
 
         $key = get_class($this->model) . '.' . $attribute;
 
         if (!array_key_exists($key, $slugEngines)) {
-            $engine = new Slugify();
+            $engine = new $slugifyClass();
             if (method_exists($this->model, 'customizeSlugEngine')) {
                 $engine = $this->model->customizeSlugEngine($engine, $attribute);
             }
